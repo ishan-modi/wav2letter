@@ -61,13 +61,13 @@ void audioStreamToWordsStream(
   decoder.start();
   bool finish = false;
 
-  outputWordsStream << "#start (msec), end(msec), transcription" << std::endl;
+  outputWordsStream << "#start (msec), end(msec), transcription"<< std::endl;
   while (!finish) {
     int curChunkSize = readTransformStreamIntoBuffer<int16_t, float>(
         inputAudioStream, inputBuffer, minChunkSize, [](int16_t i) -> float {
           return static_cast<float>(i) / kMaxUint16;
         });
-
+        
     if (curChunkSize >= minChunkSize) {
       dnnModule->run(input);
       float* data = outputBuffer->data<float>();
@@ -185,6 +185,94 @@ void audioFileToWordsFile(
       nTokens,
       nullptr);
 }
+
+/* ===================== audio processing===================== */
+
+Decoder audio_processing::initialise()
+{
+  auto decoder = decoderFactory->createDecoder(decoderOptions);
+  input = std::make_shared<streaming::ModuleProcessingState>(1);
+  inputBuffer = input->buffer(0);
+
+  auto output = dnnModule->start(input);
+  outputBuffer = output->buffer(0);
+  
+  decoder.start(); 
+
+  return decoder ;
+}
+
+void audio_processing::destroy(Decoder decoder)
+{
+  dnnModule->finish(input);
+  decoder.finish();
+
+  constexpr const int lookBack = 0;
+  const int nFramesOut = outputBuffer->size<float>() / nTokens;
+  outputBuffer->consume<float>(nFramesOut * nTokens);
+  decoder.prune(lookBack);
+}
+
+struct transcription audio_processing::process(
+      std::istream& inputAudioStream,
+      std::ostream& outputWordsStream,
+      Decoder decoder) 
+{
+  constexpr const int lookBack = 0;
+  constexpr const size_t kWavHeaderNumBytes = 44;
+  constexpr const float kMaxUint16 = static_cast<float>(0x8000);
+  constexpr const int kAudioWavSamplingFrequency = 16000; // 16KHz audio.
+  constexpr const int kChunkSizeMsec = 500;
+
+  struct transcription t;
+
+  inputAudioStream.ignore(kWavHeaderNumBytes);
+
+  const int minChunkSize = kChunkSizeMsec * kAudioWavSamplingFrequency / 1000;
+  int audioSampleCount = 0;
+
+  
+  outputWordsStream << "#start (msec), end(msec), transcription"<< std::endl;
+
+  int curChunkSize = readTransformStreamIntoBuffer<int16_t, float>(
+      inputAudioStream, inputBuffer, minChunkSize, [](int16_t i) -> float {
+        return static_cast<float>(i) / kMaxUint16;
+      });
+      
+  if (curChunkSize >= minChunkSize) {
+    dnnModule->run(input);
+    float* data = outputBuffer->data<float>();
+    int size = outputBuffer->size<float>();
+    if (data && size > 0) {
+      decoder.run(data, size);
+    }
+  }
+  else {
+    float* data = outputBuffer->data<float>();
+    int size = outputBuffer->size<float>();
+    if (data && size > 0) {
+      decoder.run(data, size);
+    }
+  }
+  const int chunk_start_ms =
+      (audioSampleCount / (kAudioWavSamplingFrequency / 1000));
+  const int chunk_end_ms =
+      ((audioSampleCount + curChunkSize) /
+        (kAudioWavSamplingFrequency / 1000));
+
+  const std::vector<WordUnit>& wordUnits = decoder.getBestHypothesisInWords(lookBack);
+  t.start=chunk_start_ms;
+  t.end=chunk_end_ms;
+  std::string str="";
+  for (const auto& wordUnit : wordUnits) {
+    str+=wordUnit.word+" " ;
+  }
+  audioSampleCount += curChunkSize;
+
+  t.str=str;
+  
+  return t;
+}    
 
 } // namespace streaming
 } // namespace w2l
