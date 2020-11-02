@@ -188,35 +188,38 @@ void audioFileToWordsFile(
 
 /* ===================== audio processing===================== */
 
-Decoder audio_processing::initialise()
+Decoder* audio_processing::initialise(std::shared_ptr<const DecoderFactory> decoderFactory,
+                                      struct w2l::DecoderOptions decoderOptions,
+                                      std::shared_ptr<w2l::streaming::Sequential> dnnModule)
 {
-  auto decoder = decoderFactory->createDecoder(decoderOptions);
+  auto decoder = new Decoder(decoderFactory->createDecoder(decoderOptions));
   input = std::make_shared<streaming::ModuleProcessingState>(1);
   inputBuffer = input->buffer(0);
 
   auto output = dnnModule->start(input);
+  
   outputBuffer = output->buffer(0);
   
-  decoder.start(); 
+  //decoder->start(); 
+  
+  audioSampleCount=0;
 
   return decoder ;
 }
 
-void audio_processing::destroy(Decoder decoder)
+void audio_processing::destroy(Decoder* decoder,
+                              std::shared_ptr<w2l::streaming::Sequential> dnnModule)
 {
   dnnModule->finish(input);
-  decoder.finish();
-
-  constexpr const int lookBack = 0;
-  const int nFramesOut = outputBuffer->size<float>() / nTokens;
-  outputBuffer->consume<float>(nFramesOut * nTokens);
-  decoder.prune(lookBack);
+  //decoder->finish();
 }
 
 struct transcription audio_processing::process(
       std::istream& inputAudioStream,
       std::ostream& outputWordsStream,
-      Decoder decoder) 
+      Decoder* decoder,
+      std::shared_ptr<w2l::streaming::Sequential> dnnModule,
+      int nTokens) 
 {
   constexpr const int lookBack = 0;
   constexpr const size_t kWavHeaderNumBytes = 44;
@@ -229,29 +232,30 @@ struct transcription audio_processing::process(
   inputAudioStream.ignore(kWavHeaderNumBytes);
 
   const int minChunkSize = kChunkSizeMsec * kAudioWavSamplingFrequency / 1000;
-  int audioSampleCount = 0;
-
   
-  outputWordsStream << "#start (msec), end(msec), transcription"<< std::endl;
+  std::cout<<"reached transformation"<<std::endl;
+
 
   int curChunkSize = readTransformStreamIntoBuffer<int16_t, float>(
       inputAudioStream, inputBuffer, minChunkSize, [](int16_t i) -> float {
         return static_cast<float>(i) / kMaxUint16;
       });
-      
+
+  std::cout<<"transformation complete"<<std::endl;    
+  
   if (curChunkSize >= minChunkSize) {
     dnnModule->run(input);
     float* data = outputBuffer->data<float>();
     int size = outputBuffer->size<float>();
     if (data && size > 0) {
-      decoder.run(data, size);
+      //decoder->run(data, size);
     }
   }
   else {
     float* data = outputBuffer->data<float>();
     int size = outputBuffer->size<float>();
     if (data && size > 0) {
-      decoder.run(data, size);
+      //decoder->run(data, size);
     }
   }
   const int chunk_start_ms =
@@ -260,17 +264,24 @@ struct transcription audio_processing::process(
       ((audioSampleCount + curChunkSize) /
         (kAudioWavSamplingFrequency / 1000));
 
-  const std::vector<WordUnit>& wordUnits = decoder.getBestHypothesisInWords(lookBack);
+  dnnModule->finish(input);
+  
+  //const std::vector<WordUnit>& wordUnits = decoder->getBestHypothesisInWords(lookBack);
   t.start=chunk_start_ms;
   t.end=chunk_end_ms;
   std::string str="";
-  for (const auto& wordUnit : wordUnits) {
+  /*for (const auto& wordUnit : wordUnits) {
     str+=wordUnit.word+" " ;
-  }
+  }*/
   audioSampleCount += curChunkSize;
-
   t.str=str;
+
+  outputWordsStream<<t.start<<" "<<t.end<<" "<<t.str<<std::endl;
   
+  const int nFramesOut = outputBuffer->size<float>() / nTokens;
+  outputBuffer->consume<float>(nFramesOut * nTokens);
+  //decoder->prune(lookBack);
+
   return t;
 }    
 

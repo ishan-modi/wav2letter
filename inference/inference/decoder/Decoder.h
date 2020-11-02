@@ -83,7 +83,9 @@ class Decoder {
 
   Decoder(const DecoderFactory* factory, std::shared_ptr<w2l::Decoder> decoder)
       : factory_(std::make_shared<DecoderFactory>(*factory)),
-        decoder_(decoder) {}
+        decoder_(decoder) {
+          this->factory_addr=factory;
+        }
 
   void start();
 
@@ -98,6 +100,7 @@ class Decoder {
 
  private:
   const std::shared_ptr<DecoderFactory> factory_;
+  const DecoderFactory* factory_addr;
   std::shared_ptr<w2l::Decoder> decoder_;
 };
 

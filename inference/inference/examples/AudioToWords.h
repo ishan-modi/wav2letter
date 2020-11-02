@@ -68,174 +68,29 @@ struct transcription
   long end;
 };
 
-DEFINE_string(
-    input_files_base_path,
-    ".",
-    "path is added as prefix to input files unless the input file"
-    " is a full path.");
-DEFINE_string(
-    feature_module_file,
-    "feature_extractor.bin",
-    "serialized feature extraction module.");
-DEFINE_string(
-    acoustic_module_file,
-    "acoustic_model.bin",
-    "binary file containing acoustic module parameters.");
-DEFINE_string(
-    transitions_file,
-    "",
-    "binary file containing ASG criterion transition parameters.");
-DEFINE_string(tokens_file, "tokens.txt", "text file containing tokens.");
-DEFINE_string(lexicon_file, "lexicon.txt", "text file containing lexicon.");
-DEFINE_string(silence_token, "_", "the token to use to denote silence");
-DEFINE_string(
-    language_model_file,
-    "language_model.bin",
-    "binary file containing language module parameters.");
-DEFINE_string(
-    decoder_options_file,
-    "decoder_options.json",
-    "JSON file containing decoder options"
-    " including: max overall beam size, max beam for token selection, beam score threshold"
-    ", language model weight, word insertion score, unknown word insertion score"
-    ", silence insertion score, and use logadd when merging decoder nodes");
-
-std::string GetInputFileFullPath(const std::string& fileName) {
-  return GetFullPath(fileName, FLAGS_input_files_base_path);
-}
-
 class audio_processing
 {
-  public:
-    audio_processing(int argc,char* argv[])
-    {
+public:
+  Decoder* initialise(std::shared_ptr<const DecoderFactory> decoderFactory,
+                      struct w2l::DecoderOptions decoderOptions,
+                      std::shared_ptr<w2l::streaming::Sequential> dnnModule);
 
-      gflags::ParseCommandLineFlags(&argc, &argv, true);
+  void destroy(w2l::streaming::Decoder* decoder,
+              std::shared_ptr<w2l::streaming::Sequential> dnnModule);
 
-    // Read files
-      {
-        TimeElapsedReporter feturesLoadingElapsed("features model file loading");
-        std::ifstream featFile(
-            GetInputFileFullPath(FLAGS_feature_module_file), std::ios::binary);
-        if (!featFile.is_open()) {
-          throw std::runtime_error(
-              "failed to open feature file=" +
-              GetInputFileFullPath(FLAGS_feature_module_file) + " for reading");
-        }
-        cereal::BinaryInputArchive ar(featFile);
-        ar(featureModule);
-      }
-
-      {
-        TimeElapsedReporter acousticLoadingElapsed("acoustic model file loading");
-        std::ifstream amFile(
-            GetInputFileFullPath(FLAGS_acoustic_module_file), std::ios::binary);
-        if (!amFile.is_open()) {
-          throw std::runtime_error(
-              "failed to open acoustic model file=" +
-              GetInputFileFullPath(FLAGS_feature_module_file) + " for reading");
-        }
-        cereal::BinaryInputArchive ar(amFile);
-        ar(acousticModule);
-      }
-
-      // String both modeles togthers to a single DNN.
-      dnnModule->add(featureModule);
-      dnnModule->add(acousticModule);
-
-      {
-        TimeElapsedReporter acousticLoadingElapsed("tokens file loading");
-        std::ifstream tknFile(GetInputFileFullPath(FLAGS_tokens_file));
-        if (!tknFile.is_open()) {
-          throw std::runtime_error(
-              "failed to open tokens file=" +
-              GetInputFileFullPath(FLAGS_tokens_file) + " for reading");
-        }
-        std::string line;
-        while (std::getline(tknFile, line)) {
-          tokens.push_back(line);
-        }
-      }
-      nTokens = tokens.size();
-      std::cout << "Tokens loaded - " << nTokens << " tokens" << std::endl;
-    
-      {
-      TimeElapsedReporter decoderOptionsElapsed("decoder options file loading");
-      std::ifstream decoderOptionsFile(
-          GetInputFileFullPath(FLAGS_decoder_options_file));
-      if (!decoderOptionsFile.is_open()) {
-        throw std::runtime_error(
-            "failed to open decoder options file=" +
-            GetInputFileFullPath(FLAGS_decoder_options_file) + " for reading");
-      }
-      cereal::JSONInputArchive ar(decoderOptionsFile);
-      // TODO: factor out proper serialization functionality or Cereal
-      // specialization.
-      ar(cereal::make_nvp("beamSize", decoderOptions.beamSize),
-        cereal::make_nvp("beamSizeToken", decoderOptions.beamSizeToken),
-        cereal::make_nvp("beamThreshold", decoderOptions.beamThreshold),
-        cereal::make_nvp("lmWeight", decoderOptions.lmWeight),
-        cereal::make_nvp("wordScore", decoderOptions.wordScore),
-        cereal::make_nvp("unkScore", decoderOptions.unkScore),
-        cereal::make_nvp("silScore", decoderOptions.silScore),
-        cereal::make_nvp("eosScore", decoderOptions.eosScore),
-        cereal::make_nvp("logAdd", decoderOptions.logAdd),
-        cereal::make_nvp("criterionType", decoderOptions.criterionType));
-    }
-
-    if (!FLAGS_transitions_file.empty()) {
-      TimeElapsedReporter acousticLoadingElapsed("transitions file loading");
-      std::ifstream transitionsFile(
-          GetInputFileFullPath(FLAGS_transitions_file), std::ios::binary);
-      if (!transitionsFile.is_open()) {
-        throw std::runtime_error(
-            "failed to open transition parameter file=" +
-            GetInputFileFullPath(FLAGS_transitions_file) + " for reading");
-      }
-      cereal::BinaryInputArchive ar(transitionsFile);
-      ar(transitions);
-    }
-
-    // Create Decoder
-    {
-      TimeElapsedReporter acousticLoadingElapsed("create decoder");
-      decoderFactory = std::make_shared<DecoderFactory>(
-          GetInputFileFullPath(FLAGS_tokens_file),
-          GetInputFileFullPath(FLAGS_lexicon_file),
-          GetInputFileFullPath(FLAGS_language_model_file),
-          transitions,
-          SmearingMode::MAX,
-          FLAGS_silence_token,
-          0);
-    }
-
-    }
-
-    Decoder initialise();
-
-    void destroy(w2l::streaming::Decoder decoder);
-
-    struct transcription process(
-      std::istream& inputAudioStream,
-      std::ostream& outputWordsStream,
-      Decoder decoder);
+  struct transcription process(
+    std::istream& inputAudioStream,
+    std::ostream& outputWordsStream,
+    Decoder* decoder,
+    std::shared_ptr<w2l::streaming::Sequential> dnnModule,
+    int nTokens);
 
 private:
   std::shared_ptr<w2l::streaming::IOBuffer> inputBuffer;
   std::shared_ptr<w2l::streaming::IOBuffer> outputBuffer;
   std::shared_ptr<w2l::streaming::ModuleProcessingState> input ;
-  
-  int nTokens ;
+  int audioSampleCount;
 
-  std::shared_ptr<w2l::streaming::Sequential> dnnModule = std::make_shared<streaming::Sequential>();
-  std::vector<std::string> tokens;
-  std::shared_ptr<streaming::Sequential> featureModule;
-  std::shared_ptr<streaming::Sequential> acousticModule;
-  std::vector<float> transitions;
-  
-public:
-  std::shared_ptr<const DecoderFactory> decoderFactory;
-  struct w2l::DecoderOptions decoderOptions;
 };
 
 } // namespace streaming
