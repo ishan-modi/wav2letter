@@ -182,11 +182,11 @@ function(build_server TARGET SRCFILE)
   )
 endfunction(build_server)
 
-#build_example(interactive_streaming_asr_example
- # ${CMAKE_CURRENT_LIST_DIR}/InteractiveStreamingASRExample.cpp)
-#build_example(simple_streaming_asr_example
- # ${CMAKE_CURRENT_LIST_DIR}/SimpleStreamingASRExample.cpp)
-#build_example(multithreaded_streaming_asr_example
- # ${CMAKE_CURRENT_LIST_DIR}/MultithreadedStreamingASRExample.cpp)
+build_example(interactive_streaming_asr_example
+  ${CMAKE_CURRENT_LIST_DIR}/InteractiveStreamingASRExample.cpp)
+build_example(simple_streaming_asr_example
+  ${CMAKE_CURRENT_LIST_DIR}/SimpleStreamingASRExample.cpp)
+build_example(multithreaded_streaming_asr_example
+  ${CMAKE_CURRENT_LIST_DIR}/MultithreadedStreamingASRExample.cpp)
 build_server(server
   ${CMAKE_CURRENT_LIST_DIR}/server.cc)

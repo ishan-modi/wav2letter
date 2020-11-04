@@ -61,37 +61,5 @@ void audioFileToWordsFile(
     const DecoderOptions& decoderOptions,
     int nTokens);
 
-struct transcription
-{
-  std::string str;
-  long start;
-  long end;
-};
-
-class audio_processing
-{
-public:
-  Decoder* initialise(std::shared_ptr<const DecoderFactory> decoderFactory,
-                      struct w2l::DecoderOptions decoderOptions,
-                      std::shared_ptr<w2l::streaming::Sequential> dnnModule);
-
-  void destroy(w2l::streaming::Decoder* decoder,
-              std::shared_ptr<w2l::streaming::Sequential> dnnModule);
-
-  struct transcription process(
-    std::istream& inputAudioStream,
-    std::ostream& outputWordsStream,
-    Decoder* decoder,
-    std::shared_ptr<w2l::streaming::Sequential> dnnModule,
-    int nTokens);
-
-private:
-  std::shared_ptr<w2l::streaming::IOBuffer> inputBuffer;
-  std::shared_ptr<w2l::streaming::IOBuffer> outputBuffer;
-  std::shared_ptr<w2l::streaming::ModuleProcessingState> input ;
-  int audioSampleCount;
-
-};
-
 } // namespace streaming
 } // namespace w2l
