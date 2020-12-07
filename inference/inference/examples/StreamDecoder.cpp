@@ -21,9 +21,9 @@
 #include "inference/module/module.h"
 #include "inference/module/nn/nn.h"
 
-using wav2letter::Byte_Stream;
-using wav2letter::echo_bytestream;
-using wav2letter::Trans_Stream;
+using wav2letter::DecodeInput;
+using wav2letter::DecodeOutput;
+using wav2letter::Transcriber;
 using namespace std;
 
 using grpc::ResourceQuota;
@@ -90,16 +90,16 @@ struct w2l::DecoderOptions decoderOptions;
 std::shared_ptr<w2l::streaming::Sequential> dnnModule =
     std::make_shared<streaming::Sequential>();
 
-class echo_bytestreamImpl final : public echo_bytestream::Service {
-  Status Search(
+class TranscriberImpl final : public Transcriber::Service {
+  Status DecodeStream(
       ServerContext* context,
-      ServerReaderWriter<Trans_Stream, Byte_Stream>* stream) override {
+      ServerReaderWriter<DecodeOutput, DecodeInput>* stream) override {
     std::shared_ptr<w2l::streaming::IOBuffer> inputBuffer;
     std::shared_ptr<w2l::streaming::IOBuffer> outputBuffer;
     std::shared_ptr<w2l::streaming::ModuleProcessingState> input;
     int audioSampleCount;
 
-    Byte_Stream data;
+    DecodeInput stream_input;
 
     auto decoder = decoderFactory->createDecoder(decoderOptions);
 
@@ -112,23 +112,16 @@ class echo_bytestreamImpl final : public echo_bytestream::Service {
 
     decoder.start();
 
-    audioSampleCount = 0;
-    bool finish_flag = false;
-    bool ignore_flag = false;
+    bool finished = false;
 
-    while (stream->Read(&data)) {
-      std::istringstream inputAudioStream(data.bstream(), std::ios::binary);
+    while (stream->Read(&stream_input)) {
+      std::istringstream inputAudioStream(
+          stream_input.audio(), std::ios::binary);
 
       constexpr const int lookBack = 0;
-      constexpr const size_t kWavHeaderNumBytes = 44;
       constexpr const float kMaxUint16 = static_cast<float>(0x8000);
       constexpr const int kAudioWavSamplingFrequency = 16000; // 16KHz audio.
-      constexpr const int kChunkSizeMsec = 500;
-
-      if (ignore_flag == false) {
-        // inputAudioStream.ignore(kWavHeaderNumBytes);
-        ignore_flag = true;
-      }
+      constexpr const int kChunkSizeMsec = 512;
 
       const int minChunkSize =
           kChunkSizeMsec * kAudioWavSamplingFrequency / 1000;
@@ -145,59 +138,43 @@ class echo_bytestreamImpl final : public echo_bytestream::Service {
         if (data && size > 0) {
           decoder.run(data, size);
         }
-      }
-
-      if (data.eos() == true) {
+      } else {
         dnnModule->finish(input);
         float* data = outputBuffer->data<float>();
         int size = outputBuffer->size<float>();
         if (data && size > 0) {
           decoder.run(data, size);
         }
-        finish_flag = true;
+        decoder.finish();
+        finished = true;
       }
-
-      const int chunk_start_ms =
-          (audioSampleCount / (kAudioWavSamplingFrequency / 1000));
-      const int chunk_end_ms =
-          ((audioSampleCount + curChunkSize) /
-           (kAudioWavSamplingFrequency / 1000));
 
       const std::vector<WordUnit>& wordUnits =
           decoder.getBestHypothesisInWords(lookBack);
-      std::string str = "";
+      std::string text = "";
       for (const auto& wordUnit : wordUnits) {
-        str += wordUnit.word + " ";
+        text += wordUnit.word + " ";
       }
-      audioSampleCount += curChunkSize;
 
-      Trans_Stream* res_data = new Trans_Stream();
-      res_data->set_tstream(str);
-      res_data->set_start(chunk_start_ms);
-      res_data->set_end(chunk_end_ms);
-      res_data->set_uid(data.uid());
-      stream->Write(*res_data);
-
-      if (finish_flag == true) {
-        decoder.finish();
-        delete res_data;
-        break;
-      }
+      DecodeOutput* stream_output = new DecodeOutput();
+      stream_output->set_text(text);
+      stream_output->set_uid(stream_input.uid());
+      stream_output->set_seq(stream_input.seq());
+      stream_output->set_finished(finished);
+      stream->Write(*stream_output);
 
       const int nFramesOut = outputBuffer->size<float>() / nTokens;
       outputBuffer->consume<float>(nFramesOut * nTokens);
       decoder.prune(lookBack);
     }
+
     return Status::OK;
   }
-
- private:
-  map<long, struct processing_data*> map_multiclient;
 };
 
 void RunServer(int argc, char* argv[]) {
   string server_address("0.0.0.0:50051");
-  echo_bytestreamImpl service;
+  TranscriberImpl service;
 
   ServerBuilder builder;
   builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());

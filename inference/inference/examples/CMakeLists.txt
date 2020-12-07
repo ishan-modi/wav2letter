@@ -10,7 +10,7 @@ add_library(util_example
 )
 
 add_dependencies(util_example cereal)
-add_dependencies(util_example grpc)
+# add_dependencies(util_example grpc)
 add_dependencies(util_example streaming_inference_common)
 
 find_package(Threads REQUIRED)
@@ -120,48 +120,41 @@ function(build_server TARGET SRCFILE)
       set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:grpc_cpp_plugin>)
     endif()
   else()
-    find_package(Protobuf CONFIG REQUIRED)
+    message(STATUS "Skipping GRPC")
+    find_package(protobuf CONFIG REQUIRED)
     message(STATUS "Using protobuf ${protobuf_VERSION}")
-
     set(_PROTOBUF_LIBPROTOBUF protobuf::libprotobuf)
-    set(_REFLECTION gRPC::grpc++_reflection)
-    if(CMAKE_CROSSCOMPILING)
-      find_program(_PROTOBUF_PROTOC protoc)
-    else()
-      set(_PROTOBUF_PROTOC $<TARGET_FILE:protobuf::protoc>)
-    endif()
-
+    find_program(_PROTOBUF_PROTOC protoc)
+    message(STATUS "Using protc ${_PROTOBUF_PROTOC}")
     find_package(gRPC CONFIG REQUIRED)
     message(STATUS "Using gRPC ${gRPC_VERSION}")
-
+    set(_REFLECTION gRPC::grpc++_reflection)
+    set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
     set(_GRPC_GRPCPP gRPC::grpc++)
-    if(CMAKE_CROSSCOMPILING)
-      find_program(_GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin)
-    else()
-      set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
-    endif()
+    message(STATUS "Using gRPC ${_GRPC_GRPCPP}")
   endif()
-  get_filename_component(w21_proto "wav2letter.proto" ABSOLUTE)
-  get_filename_component(w21_proto_path "${w21_proto}" PATH)
 
-  set(w21_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.pb.cc")
-  set(w21_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.pb.h")
+  get_filename_component(w2l_proto "wav2letter.proto" ABSOLUTE)
+  get_filename_component(w2l_proto_path "${w2l_proto}" PATH)
+
+  set(w2l_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.pb.cc")
+  set(w2l_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.pb.h")
   set(w2l_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.grpc.pb.cc")
   set(w2l_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wav2letter.grpc.pb.h")
   add_custom_command(
-        OUTPUT "${w21_proto_srcs}" "${w21_proto_hdrs}" "${w2l_grpc_srcs}" "${w2l_grpc_hdrs}"
+        OUTPUT "${w2l_proto_srcs}" "${w2l_proto_hdrs}" "${w2l_grpc_srcs}" "${w2l_grpc_hdrs}"
         COMMAND ${_PROTOBUF_PROTOC}
         ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
           --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
-          -I "${w21_proto_path}"
+          -I "${w2l_proto_path}"
           --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
-          "${w21_proto}"
-        DEPENDS "${w21_proto}")
+          "${w2l_proto}"
+        DEPENDS "${w2l_proto}")
 
   include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 
   add_executable(${TARGET} ${SRCFILE}
-    ${w21_proto_srcs}
+    ${w2l_proto_srcs}
     ${w2l_grpc_srcs})
   target_link_libraries(${TARGET}
     PRIVATE
@@ -172,7 +165,7 @@ function(build_server TARGET SRCFILE)
       streaming_inference_modules_feature
       audio_to_words_example
       ${GFLAGS_LIBRARIES}
-  ) 
+  )
   add_dependencies(StreamingInferenceExamples ${TARGET})
   target_include_directories(
     ${TARGET}
@@ -190,3 +183,8 @@ build_example(multithreaded_streaming_asr_example
   ${CMAKE_CURRENT_LIST_DIR}/MultithreadedStreamingASRExample.cpp)
 build_server(server
   ${CMAKE_CURRENT_LIST_DIR}/server.cc)
+build_server(stream_decoder
+  ${CMAKE_CURRENT_LIST_DIR}/StreamDecoder.cpp)
+build_server(utterance_decoder
+  ${CMAKE_CURRENT_LIST_DIR}/UtteranceDecoder.cpp)
+

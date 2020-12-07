@@ -8,19 +8,7 @@
 # examples are at: /root/wav2letter/build/inference/inference/examples/
 # ------------------------------------------------------------------
 
-FROM wav2letter/wav2letter:inference-base-latest
-
-RUN apt update && apt install -y libssl-dev && \
-    wget https://github.com/Kitware/CMake/releases/download/v3.16.5/cmake-3.16.5.tar.gz && \
-    tar -zxvf cmake-3.16.5.tar.gz && \
-    cd cmake-3.16.5 && \
-    ./bootstrap && \
-    make -j2 && make install && \
-    cd /root && \
-    git clone --recurse-submodules -b v1.33.1 https://github.com/grpc/grpc && \
-    cd grpc && mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DgRPC_INSTALL=ON .. && \
-    make -j2 && make install
+FROM speech2words.azurecr.io/w2l/w2l-server-base:latest
 
 # Copy wav2letter src directory from host.
 RUN mkdir /root/wav2letter
@@ -35,7 +23,7 @@ RUN export KENLM_ROOT_DIR=/root/kenlm && \
     cd build && \
     rm -rf * && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DW2L_BUILD_LIBRARIES_ONLY=ON -DW2L_LIBRARIES_USE_CUDA=OFF -DW2L_BUILD_INFERENCE=ON   && \
-    make -j$(nproc) server
+    make -j$(nproc) stream_decoder utterance_decoder
 
 EXPOSE 50051
 
