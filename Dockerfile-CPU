@@ -24,3 +24,5 @@ RUN export MKLROOT=/opt/intel/mkl && \
     cd /root/wav2letter && mkdir -p build && \
     cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DW2L_LIBRARIES_USE_CUDA=OFF && \
     make -j$(nproc)
+
+ADD lists /root/wav2letter/lists
