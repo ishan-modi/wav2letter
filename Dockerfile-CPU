@@ -26,3 +26,5 @@ RUN export MKLROOT=/opt/intel/mkl && \
     make -j$(nproc)
 
 ADD lists /root/wav2letter/lists
+
+cd /root/wav2letter && bin/getmodel.sh
